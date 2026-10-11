@@ -1,0 +1,42 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.11-alpine
+    environment:
+      CLICKHOUSE_DB: netflow
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-netflow}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD before starting ClickHouse}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana
+    user: "0"
+    restart: unless-stopped
+    ports:
+      - 80:3000
+
+  collector:
+    build: ./collector
+    restart: unless-stopped
+    init: true
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-netflow}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD before starting the NetFlow pipeline}
+      CLICKHOUSE_BATCH_SIZE: ${CLICKHOUSE_BATCH_SIZE:-500}
+    ports:
+      - "2055:2055/udp"
+
+volumes:
+  clickhouse-data:
